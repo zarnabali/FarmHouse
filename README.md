@@ -290,4 +290,5 @@ For support and questions:
 
 ---
 
-**FarmHouse** - Modernizing livestock management with AI-powered insights and comprehensive farm oversight. 
+**FarmHouse** - Modernizing livestock management with AI-powered insights and comprehensive farm oversight.
+
