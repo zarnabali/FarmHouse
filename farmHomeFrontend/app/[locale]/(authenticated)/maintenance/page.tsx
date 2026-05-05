@@ -1,0 +1,321 @@
+"use client"
+
+import { useState } from "react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Plus, Search, Download, Upload, Edit, Trash2, Eye, Wrench, Loader2 } from "lucide-react"
+import { useTranslations } from 'next-intl';
+import { useEffect } from "react"
+import { config } from "@/config"
+
+export default function MaintenancePage() {
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null)
+
+  const [searchTerm, setSearchTerm] = useState("")
+  const [filterType, setFilterType] = useState("all")
+  const [filterStatus, setFilterStatus] = useState("all")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const itemsPerPage = 10
+
+  const t = useTranslations('MaintenancePage');
+
+  const typeOptions = ["Equipment Maintenance", "Facility Maintenance", "Fencing Repair", "Feeding System Maintenance"]
+  const statusOptions = ["Completed", "Scheduled", "In Progress", "Overdue"]
+
+  useEffect(() => {
+    fetchRecords(currentPage, itemsPerPage)
+  }, [currentPage])
+
+  const fetchRecords = async (page = 1, limit = itemsPerPage) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const url = new URL(`${config.backendUrl}/maintenance`)
+      url.searchParams.append("page", page.toString())
+      url.searchParams.append("limit", limit.toString())
+      const res = await fetch(url.toString(), {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      })
+      if (!res.ok) throw new Error('Failed to fetch maintenance records')
+      const data = await res.json()
+      setRecords(Array.isArray(data.maintenance) ? data.maintenance : data.records || [])
+      setTotalPages(data.totalPages || 1)
+      setTotalRecords(data.total || (Array.isArray(data.maintenance) ? data.maintenance.length : 0))
+      setCurrentPage(data.page || page)
+    } catch (err) {
+      setError('Error fetching maintenance records')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filteredRecords = records.filter((record) => {
+    const matchesSearch =
+      record.equipmentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.performedBy.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesType = filterType === "all" || record.maintenanceType === filterType
+    const matchesStatus = filterStatus === "all" || record.status === filterStatus
+
+    return matchesSearch && matchesType && matchesStatus
+  })
+
+  const handleExportCSV = () => {
+    const csvContent = [
+      ["Equipment ID", "Type", "Date", "Performed By", "Description", "Labor Hours", "Cost", "Next Due", "Status"].join(
+        ",",
+      ),
+      ...filteredRecords.map((record) =>
+        [
+          record.equipmentId,
+          record.maintenanceType,
+          record.maintenanceDate,
+          record.performedBy,
+          record.description,
+          record.laborHours,
+          record.totalCost,
+          record.nextMaintenanceDate,
+          record.status,
+        ].join(","),
+      ),
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv" })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "maintenance-records.csv"
+    a.click()
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "Completed":
+        return "default"
+      case "Scheduled":
+        return "secondary"
+      case "In Progress":
+        return "outline"
+      case "Overdue":
+        return "destructive"
+      default:
+        return "secondary"
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "High":
+        return "destructive"
+      case "Medium":
+        return "default"
+      case "Routine":
+        return "secondary"
+      default:
+        return "secondary"
+    }
+  }
+
+  // Add delete handler
+  const handleDeleteRecord = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this maintenance record?')) return;
+    setDeleteLoadingId(id);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const res = await fetch(`${config.backendUrl}/maintenance/${id}`, {
+        method: 'DELETE',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+      if (!res.ok) throw new Error('Failed to delete maintenance record');
+      setRecords((prev) => prev.filter((r) => (r._id || r.id) !== id));
+    } catch (err) {
+      alert('Error deleting maintenance record');
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">{t('title')}</h1>
+          <p className="text-gray-600">{t('description')}</p>
+        </div>
+        <div className="flex space-x-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={loading}>
+            <Download className="h-4 w-4 mr-2" />
+            {t('exportCSV')}
+          </Button>
+          <Button variant="outline" disabled={loading}>
+            <Upload className="h-4 w-4 mr-2" />
+            {t('importCSV')}
+          </Button>
+          <Link href="/maintenance/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              {t('add')}
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('list')}</CardTitle>
+          <CardDescription>{t('listDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Filters and Search */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder={t('searchByEquipmentOrType')}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                  disabled={loading}
+                />
+              </div>
+            </div>
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder={t('filterBy') + " " + t('type')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('allTypes')}</SelectItem>
+                {typeOptions.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder={t('filterBy') + " " + t('status')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('allStatuses')}</SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Table */}
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('equipmentId')}</TableHead>
+                  <TableHead>{t('type')}</TableHead>
+                  <TableHead>{t('date')}</TableHead>
+                  <TableHead>{t('performedBy')}</TableHead>
+                  <TableHead>{t('laborHours')}</TableHead>
+                  <TableHead>{t('cost')}</TableHead>
+                  <TableHead>{t('nextDue')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
+                  <TableHead>{t('actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">Loading...</TableCell>
+                  </TableRow>
+                ) : error ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-red-600">{error}</TableCell>
+                  </TableRow>
+                ) : filteredRecords.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">No records found</TableCell>
+                  </TableRow>
+                ) : (
+                  filteredRecords.map((record) => (
+                    <TableRow key={record._id || record.id}>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center space-x-2">
+                          <Wrench className="h-4 w-4 text-gray-500" />
+                          <span>{record.equipmentId}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{record.maintenanceType}</TableCell>
+                      <TableCell>{record.maintenanceDate ? record.maintenanceDate.slice(0, 10) : ""}</TableCell>
+                      <TableCell>{record.performedBy}</TableCell>
+                      <TableCell>{record.laborHours}h</TableCell>
+                      <TableCell>${Number(record.totalCost).toFixed(2)}</TableCell>
+                      <TableCell>{record.nextMaintenanceDate ? record.nextMaintenanceDate.slice(0, 10) : ""}</TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusColor(record.status) as any}>{record.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button variant="outline" size="sm">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="outline" size="sm">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleDeleteRecord(record._id || record.id)} disabled={deleteLoadingId === (record._id || record.id)}>
+                            {deleteLoadingId === (record._id || record.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-sm text-gray-600">
+              {`${t('showing')} ${(currentPage - 1) * itemsPerPage + 1} ${t('to')} ${Math.min(currentPage * itemsPerPage, totalRecords)} ${t('of')} ${totalRecords} ${t('results')}`}
+            </div>
+            <div className="flex space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1 || loading}
+              >
+                {t('previous')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages || loading}
+              >
+                {t('next')}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
